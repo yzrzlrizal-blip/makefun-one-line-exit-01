@@ -8,6 +8,7 @@ fully deterministic: the same bytes on every run.
 
 import os
 import sys
+import tempfile
 
 # The resignation letter: a formal opening, six years of 4:59 p.m.
 # "quick questions", and a punchline that treats the calendar like a
@@ -39,8 +40,20 @@ def write_entry() -> int:
     os.makedirs(out_dir, exist_ok=True)
     target = os.path.join(out_dir, "entry.txt")
     payload = text.encode("utf-8")
-    with open(target, "wb") as handle:
-        handle.write(payload)
+    # Write atomically: stage the bytes in a temp file in the same
+    # directory, then rename over the target. A crash mid-write can
+    # never leave a truncated entry.txt behind.
+    fd, tmp_path = tempfile.mkstemp(dir=out_dir, prefix=".entry-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+        os.replace(tmp_path, target)
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
     with open(target, "rb") as handle:
         written = handle.read()
     if written != payload:
